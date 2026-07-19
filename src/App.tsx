@@ -8,11 +8,43 @@ import VmConfigurator from "./components/VmConfigurator";
 import BillingHub from "./components/BillingHub";
 import AgentCreator from "./components/AgentCreator";
 import ProfessionalServices from "./components/ProfessionalServices";
+import CalendarHub from "./components/CalendarHub";
+import GmailHub from "./components/GmailHub";
+import ClassroomHub from "./components/ClassroomHub";
+import TranslationHub from "./components/TranslationHub";
+import InteractiveTour from "./components/InteractiveTour";
 import { 
   Phone, Video, MessageCircle, Sparkles, Search, 
   Settings, Award, Lock, Clock, Calendar, AlertCircle,
-  HelpCircle, CheckCircle2, UserPlus, Volume2, Server, Cpu, Radio, ShieldCheck, Coins, Compass
+  HelpCircle, CheckCircle2, UserPlus, Volume2, Server, Cpu, Radio, ShieldCheck, Coins, Compass,
+  LogOut, RefreshCw, Layers, Check, Globe, Mail, BookOpen, Languages, Monitor, Smartphone
 } from "lucide-react";
+import { 
+  auth, 
+  db, 
+  googleSignIn, 
+  initAuth, 
+  logout, 
+  testConnection, 
+  OperationType, 
+  handleFirestoreError 
+} from "./lib/firebase";
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  collection, 
+  getDocs, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  limit, 
+  deleteDoc 
+} from "firebase/firestore";
+import { fetchGoogleContacts } from "./lib/googleContacts";
+import { User as FirebaseUser } from "firebase/auth";
 
 // List of custom-generated avatar URLs
 const ARES_AVATAR = "/src/assets/images/ares_avatar_1784422343159.jpg";
@@ -220,6 +252,17 @@ const CONTACTS_DATA: Contact[] = [
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("chats");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  
+  // Auth and sync state
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [googleContacts, setGoogleContacts] = useState<Contact[]>([]);
+  const [isSyncingContacts, setIsSyncingContacts] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+
+  // Contacts state
   const [contacts, setContacts] = useState<Contact[]>(() => 
     CONTACTS_DATA.filter(c => c.id === "ares" || c.id === "sophia")
   );
@@ -229,43 +272,6 @@ export default function App() {
   const [isMemoryPlanActive, setIsMemoryPlanActive] = useState(false);
   const [showMemorySubscribePrompt, setShowMemorySubscribePrompt] = useState<string | null>(null);
 
-  const handleHireService = (service: Contact) => {
-    if (contacts.some(c => c.id === service.id)) return;
-    setContacts(prev => [service, ...prev]);
-    setActiveTab("chats");
-  };
-
-  const handleToggleMemory = (contactId: string) => {
-    if (!isMemoryPlanActive) {
-      setShowMemorySubscribePrompt(contactId);
-      return;
-    }
-    setContacts(prev => prev.map(c => {
-      if (c.id === contactId) {
-        return { ...c, hasMemory: !c.hasMemory };
-      }
-      return c;
-    }));
-  };
-
-  const handleToggleMemoryPlan = () => {
-    setIsMemoryPlanActive(prev => !prev);
-  };
-
-  const handleSubscribeMemoryFromPrompt = () => {
-    setIsMemoryPlanActive(true);
-    if (showMemorySubscribePrompt) {
-      const targetId = showMemorySubscribePrompt;
-      setContacts(prev => prev.map(c => {
-        if (c.id === targetId) {
-          return { ...c, hasMemory: true };
-        }
-        return c;
-      }));
-    }
-    setShowMemorySubscribePrompt(null);
-  };
-  
   // Custom VM Integration Configuration
   const [vmConfig, setVmConfig] = useState<VmConfig>({
     wsUrl: "ws://104.22.44.11:8000/v1/stream",
@@ -273,7 +279,11 @@ export default function App() {
     mode: "simulation",
     latencyMs: 30,
     audioQuality: "medium",
-    isConnected: false
+    isConnected: false,
+    liveModelProvider: "gemini-live",
+    cameraVisionEnabled: false,
+    liveModelApiKey: "",
+    customPromptInstruction: "You are an ultra low-latency Quantum Hive agent. Help the user."
   });
 
   // Call Session State
@@ -291,6 +301,16 @@ export default function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [lastAiMessageText, setLastAiMessageText] = useState<string | null>(null);
   const [activeAddParticipant, setActiveAddParticipant] = useState(false);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [isExpandedView, setIsExpandedView] = useState(false);
+
+  // Auto-open tutorial for first-time visitors
+  useEffect(() => {
+    const hasShown = localStorage.getItem("quantum_tutorial_shown");
+    if (!hasShown) {
+      setIsTutorialOpen(true);
+    }
+  }, []);
 
   // Remaining interaction balance (Starts at 12.5 minutes = 750 seconds)
   const [availableSeconds, setAvailableSeconds] = useState(750);
@@ -316,12 +336,186 @@ export default function App() {
     { id: 4, contact: CONTACTS_DATA[3], type: "video", date: "Wednesday, 11:04 AM", duration: "25 mins", status: "incoming" }
   ]);
 
+  // Firebase connection validation on initialization
+  useEffect(() => {
+    testConnection();
+  }, []);
+
+  // Firebase Auth State change subscription
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      async (firebaseUser, token) => {
+        setUser(firebaseUser);
+        setAccessToken(token);
+        setIsAuthChecking(false);
+        
+        // 1. Sync User Profile in Firestore
+        const userRef = doc(db, "users", firebaseUser.uid);
+        try {
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const userData = userSnap.data();
+            setAvailableSeconds(userData.availableSeconds ?? 750);
+            setIsMemoryPlanActive(userData.isMemoryPlanActive ?? false);
+          } else {
+            // Document does not exist, create it
+            const initialProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || "",
+              displayName: firebaseUser.displayName || "",
+              availableSeconds: 750,
+              isMemoryPlanActive: false,
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(userRef, initialProfile);
+            setAvailableSeconds(750);
+            setIsMemoryPlanActive(false);
+          }
+          
+          // 2. Load and Sync Hired Contacts
+          const contactsColRef = collection(db, "users", firebaseUser.uid, "contacts");
+          const contactsSnap = await getDocs(contactsColRef);
+          
+          if (contactsSnap.empty) {
+            // Seed Ares and Sophia in Firestore as default contacts
+            const defaultHired = CONTACTS_DATA.filter(c => c.id === "ares" || c.id === "sophia");
+            for (const contact of defaultHired) {
+              await setDoc(doc(contactsColRef, contact.id), {
+                ...contact,
+                createdAt: new Date().toISOString()
+              });
+            }
+            setContacts(defaultHired);
+          } else {
+            const loadedContacts: Contact[] = [];
+            contactsSnap.forEach(docSnap => {
+              loadedContacts.push(docSnap.data() as Contact);
+            });
+            setContacts(loadedContacts);
+          }
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
+        }
+      },
+      () => {
+        setUser(null);
+        setAccessToken(null);
+        setIsAuthChecking(false);
+        // Fallback to local defaults when logged out
+        setContacts(CONTACTS_DATA.filter(c => c.id === "ares" || c.id === "sophia"));
+        setAvailableSeconds(750);
+        setIsMemoryPlanActive(false);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time messages snapshot subscription
+  useEffect(() => {
+    if (!user || !callState.active || !callState.contact) return;
+    const contactId = callState.contact.id;
+    const messagesRef = collection(db, "users", user.uid, "contacts", contactId, "messages");
+    
+    const unsubscribe = onSnapshot(messagesRef, (snapshot) => {
+      const msgs: Message[] = [];
+      snapshot.forEach(docSnap => {
+        msgs.push(docSnap.data() as Message);
+      });
+      // Sort messages by timestamp/createdAt
+      msgs.sort((a, b) => {
+        const timeA = a.id.split("-")[1] || "0";
+        const timeB = b.id.split("-")[1] || "0";
+        return Number(timeA) - Number(timeB);
+      });
+      setMessages(prev => ({
+        ...prev,
+        [contactId]: msgs
+      }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/contacts/${contactId}/messages`);
+    });
+    
+    return () => unsubscribe();
+  }, [user, callState.active, callState.contact?.id]);
+
+  // Auth Handlers
+  const handleGoogleLogin = async () => {
+    try {
+      await googleSignIn();
+    } catch (err) {
+      console.error("Login failed:", err);
+    }
+  };
+
+  const handleGoogleLogout = async () => {
+    try {
+      await logout();
+      setActiveTab("chats");
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+  };
+
+  // Google Contacts Fetch handler
+  const handleSyncGoogleContacts = async () => {
+    if (!accessToken) {
+      alert("Please sign in first to access Google Contacts.");
+      return;
+    }
+    setIsSyncingContacts(true);
+    try {
+      const fetched = await fetchGoogleContacts(accessToken);
+      setGoogleContacts(fetched);
+      setShowSyncModal(true);
+    } catch (err) {
+      alert("Error fetching Google Contacts: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsSyncingContacts(false);
+    }
+  };
+
+  // Import single Google Contact
+  const handleImportGoogleContact = async (contact: Contact) => {
+    if (contacts.some(c => c.id === contact.id)) {
+      alert(`${contact.name} is already imported.`);
+      return;
+    }
+
+    if (user) {
+      try {
+        const contactRef = doc(db, "users", user.uid, "contacts", contact.id);
+        await setDoc(contactRef, {
+          ...contact,
+          createdAt: new Date().toISOString()
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/contacts/${contact.id}`);
+      }
+    }
+
+    setContacts(prev => [contact, ...prev]);
+    setGoogleContacts(prev => prev.filter(c => c.id !== contact.id));
+    alert(`Successfully imported ${contact.name}!`);
+  };
+
   const handleEndCallDueToExhaustion = () => {
     handleEndCall();
     setShowExpiredModal(true);
   };
 
-  const handleAddCustomAgent = (newAgent: Contact) => {
+  const handleAddCustomAgent = async (newAgent: Contact) => {
+    if (user) {
+      try {
+        const contactRef = doc(db, "users", user.uid, "contacts", newAgent.id);
+        await setDoc(contactRef, {
+          ...newAgent,
+          createdAt: new Date().toISOString()
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/contacts/${newAgent.id}`);
+      }
+    }
+
     setContacts(prev => [newAgent, ...prev]);
     setMessages(prev => ({
       ...prev,
@@ -330,8 +524,102 @@ export default function App() {
     setActiveTab("services");
   };
 
-  const handleAddMinutes = (minutes: number) => {
-    setAvailableSeconds(prev => prev + minutes * 60);
+  const handleHireService = async (service: Contact) => {
+    if (contacts.some(c => c.id === service.id)) return;
+    
+    if (user) {
+      try {
+        const contactRef = doc(db, "users", user.uid, "contacts", service.id);
+        await setDoc(contactRef, {
+          ...service,
+          createdAt: new Date().toISOString()
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/contacts/${service.id}`);
+      }
+    }
+
+    setContacts(prev => [service, ...prev]);
+    setActiveTab("chats");
+  };
+
+  const handleToggleMemory = async (contactId: string) => {
+    if (!isMemoryPlanActive) {
+      setShowMemorySubscribePrompt(contactId);
+      return;
+    }
+
+    const updatedContacts = contacts.map(c => {
+      if (c.id === contactId) {
+        const newHasMemory = !c.hasMemory;
+        if (user) {
+          const contactRef = doc(db, "users", user.uid, "contacts", contactId);
+          updateDoc(contactRef, { hasMemory: newHasMemory }).catch(error => {
+            handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/contacts/${contactId}`);
+          });
+        }
+        return { ...c, hasMemory: newHasMemory };
+      }
+      return c;
+    });
+
+    setContacts(updatedContacts);
+  };
+
+  const handleToggleMemoryPlan = async () => {
+    const nextVal = !isMemoryPlanActive;
+    if (user) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, { isMemoryPlanActive: nextVal });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+      }
+    }
+    setIsMemoryPlanActive(nextVal);
+  };
+
+  const handleSubscribeMemoryFromPrompt = async () => {
+    if (user) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, { isMemoryPlanActive: true });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+      }
+    }
+    setIsMemoryPlanActive(true);
+
+    if (showMemorySubscribePrompt) {
+      const targetId = showMemorySubscribePrompt;
+      const updatedContacts = contacts.map(c => {
+        if (c.id === targetId) {
+          if (user) {
+            const contactRef = doc(db, "users", user.uid, "contacts", targetId);
+            updateDoc(contactRef, { hasMemory: true }).catch(error => {
+              handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/contacts/${targetId}`);
+            });
+          }
+          return { ...c, hasMemory: true };
+        }
+        return c;
+      });
+      setContacts(updatedContacts);
+    }
+    setShowMemorySubscribePrompt(null);
+  };
+
+  const handleAddMinutes = async (minutes: number) => {
+    const nextSeconds = availableSeconds + minutes * 60;
+    if (user) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, { availableSeconds: nextSeconds });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+      }
+    }
+    setAvailableSeconds(nextSeconds);
   };
 
   // Call Timer Interval
@@ -458,6 +746,7 @@ export default function App() {
   const handleSendMessage = async (text: string) => {
     if (!callState.contact) return;
     const personaId = callState.contact.id;
+    const contactInfo = callState.contact;
 
     // 1. Append user's message immediately to the feed
     const userMsg: Message = {
@@ -469,10 +758,21 @@ export default function App() {
 
     const currentHistory = [...(messages[personaId] || []), userMsg];
     
-    setMessages(prev => ({
-      ...prev,
-      [personaId]: currentHistory
-    }));
+    if (user) {
+      try {
+        await setDoc(
+          doc(db, "users", user.uid, "contacts", personaId, "messages", userMsg.id),
+          { ...userMsg, createdAt: new Date().toISOString() }
+        );
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/contacts/${personaId}/messages/${userMsg.id}`);
+      }
+    } else {
+      setMessages(prev => ({
+        ...prev,
+        [personaId]: currentHistory
+      }));
+    }
 
     setIsThinking(true);
     setLastAiMessageText(null);
@@ -491,7 +791,10 @@ export default function App() {
         },
         body: JSON.stringify({
           persona: personaId,
-          messages: queryHistory
+          messages: queryHistory,
+          name: contactInfo.name,
+          role: contactInfo.role,
+          tagline: contactInfo.tagline
         })
       });
 
@@ -510,10 +813,21 @@ export default function App() {
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       };
 
-      setMessages(prev => ({
-        ...prev,
-        [personaId]: [...(prev[personaId] || []), assistantMsg]
-      }));
+      if (user) {
+        try {
+          await setDoc(
+            doc(db, "users", user.uid, "contacts", personaId, "messages", assistantMsg.id),
+            { ...assistantMsg, createdAt: new Date().toISOString() }
+          );
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/contacts/${personaId}/messages/${assistantMsg.id}`);
+        }
+      } else {
+        setMessages(prev => ({
+          ...prev,
+          [personaId]: [...(prev[personaId] || []), assistantMsg]
+        }));
+      }
 
       // Update subtitle/speech bubble
       setLastAiMessageText(replyText);
@@ -528,10 +842,21 @@ export default function App() {
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       };
 
-      setMessages(prev => ({
-        ...prev,
-        [personaId]: [...(prev[personaId] || []), errorMsg]
-      }));
+      if (user) {
+        try {
+          await setDoc(
+            doc(db, "users", user.uid, "contacts", personaId, "messages", errorMsg.id),
+            { ...errorMsg, createdAt: new Date().toISOString() }
+          );
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/contacts/${personaId}/messages/${errorMsg.id}`);
+        }
+      } else {
+        setMessages(prev => ({
+          ...prev,
+          [personaId]: [...(prev[personaId] || []), errorMsg]
+        }));
+      }
 
     } finally {
       setIsThinking(false);
@@ -547,17 +872,46 @@ export default function App() {
     }, 2200);
   };
 
-  // Filter contacts by search query
-  const filteredContacts = contacts.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter contacts by search query and category
+  const filteredContacts = contacts.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         c.role.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === "all" || c.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  // Group filtered contacts by their category for structured list layout
+  const groupedContacts = React.useMemo(() => {
+    const groups: Record<string, Contact[]> = {};
+    filteredContacts.forEach(contact => {
+      const cat = contact.category || "creacion_contenido";
+      if (!groups[cat]) {
+        groups[cat] = [];
+      }
+      groups[cat].push(contact);
+    });
+    return groups;
+  }, [filteredContacts]);
+
+  const CATEGORY_META: Record<string, { label: string; color: string; bg: string }> = {
+    psicologia: { label: "Psicología", color: "text-rose-400 border-rose-500/30", bg: "bg-rose-500/10" },
+    legal: { label: "Legal", color: "text-blue-400 border-blue-500/30", bg: "bg-blue-500/10" },
+    astrologia: { label: "Astrología", color: "text-purple-400 border-purple-500/30", bg: "bg-purple-500/10" },
+    yoga: { label: "Yoga / Bienestar", color: "text-teal-400 border-teal-500/30", bg: "bg-teal-500/10" },
+    ventas: { label: "Ventas / Estrategia", color: "text-amber-400 border-amber-500/30", bg: "bg-amber-500/10" },
+    matematicas: { label: "Software / Mentoría", color: "text-emerald-400 border-emerald-500/30", bg: "bg-emerald-500/10" },
+    creacion_contenido: { label: "Otros / Contenido", color: "text-indigo-400 border-indigo-500/30", bg: "bg-indigo-500/10" }
+  };
 
   return (
-    <div className="w-full h-screen bg-[#030508] text-white flex justify-center items-center font-sans antialiased">
+    <div className="w-full min-h-screen bg-[#030508] text-white flex justify-center items-center font-sans antialiased overflow-y-auto p-0 sm:p-4 py-0 sm:py-6">
       
-      {/* Immersive Mobile Device Frame mockup centered */}
-      <div className="relative w-full h-full max-w-md sm:h-[840px] sm:rounded-[36px] bg-brand-bg sm:border-8 sm:border-brand-primary/25 sm:shadow-[0_0_80px_rgba(212,175,55,0.15)] overflow-hidden flex flex-col">
+      {/* Immersive Mobile Device Frame mockup centered or Expanded Desktop Layout */}
+      <div className={`relative w-full h-[100dvh] sm:rounded-[36px] bg-brand-bg sm:border-8 sm:border-brand-primary/25 sm:shadow-[0_0_80px_rgba(212,175,55,0.15)] overflow-hidden flex flex-col my-auto transition-all duration-300 ${
+        isExpandedView 
+          ? "max-w-5xl sm:h-[880px]" 
+          : "max-w-md sm:h-[840px]"
+      }`}>
         
         {/* Ringing/Calling Screen Simulator Overlay */}
         {isCalling && activeCallContact && (
@@ -690,16 +1044,28 @@ export default function App() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setActiveTab("billing")}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/35 text-[9px] text-amber-400 font-mono font-bold hover:bg-amber-500/20 transition-all cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/35 text-[9px] text-amber-400 font-mono font-bold hover:bg-amber-500/20 transition-all cursor-pointer"
                   title="Recargar Minutos"
                 >
-                  <Clock className="w-3 h-3 text-amber-400" />
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
                   <span>{(availableSeconds / 60).toFixed(1)} MIN</span>
                 </button>
-                <span className="flex items-center gap-1 px-2 py-1 rounded bg-brand-primary/10 border border-brand-primary/20 text-[8px] text-brand-primary font-mono">
-                  <Lock className="w-3 h-3" />
-                  <span>SECURE AGENT</span>
-                </span>
+                
+                <button
+                  onClick={() => setIsExpandedView(!isExpandedView)}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all cursor-pointer"
+                  title={isExpandedView ? "Vista de Teléfono" : "Vista Expandida"}
+                >
+                  {isExpandedView ? <Smartphone className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={() => setIsTutorialOpen(true)}
+                  className="p-1.5 rounded-lg bg-brand-primary/10 hover:bg-brand-primary/20 border border-brand-primary/25 text-brand-primary transition-all cursor-pointer flex items-center gap-1"
+                  title="Iniciar Tour Interactivo"
+                >
+                  <HelpCircle className="w-3.5 h-3.5 text-brand-primary animate-pulse" />
+                </button>
               </div>
             </header>
 
@@ -725,6 +1091,94 @@ export default function App() {
               {/* CHATS TAB LIST */}
               {activeTab === "chats" && (
                 <div className="divide-y divide-white/5 animate-fade-in">
+                  
+                  {/* Google Connection & Account Manager */}
+                  <div className="p-4 bg-gradient-to-r from-brand-primary/10 via-brand-surface to-brand-primary/5 border-b border-brand-primary/20 flex flex-col gap-3">
+                    {!user ? (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="space-y-1 text-center sm:text-left">
+                          <h4 className="text-[11px] font-mono font-bold tracking-widest text-brand-primary uppercase flex items-center gap-1.5 justify-center sm:justify-start">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            <span>CLOUD PERSISTENCE LAYER</span>
+                          </h4>
+                          <p className="text-xs text-white/90 font-bold font-sans">Connect Google to Save Agents & Sync Contacts</p>
+                          <p className="text-[10px] text-white/50 leading-relaxed">
+                            Access real-time Google Contacts & secure cloud synchronization.
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleGoogleLogin}
+                          className="flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 hover:bg-gray-100 rounded-xl font-bold font-sans text-xs shadow-md transition-all cursor-pointer border border-gray-300"
+                        >
+                          <svg className="w-4.5 h-4.5" viewBox="0 0 24 24">
+                            <path
+                              fill="#4285F4"
+                              d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.72z"
+                            />
+                            <path
+                              fill="#34A853"
+                              d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.15 0-5.81-2.13-6.76-5.01H1.32v3.15C3.3 22.25 7.37 24 12 24z"
+                            />
+                            <path
+                              fill="#FBBC05"
+                              d="M5.24 14.19c-.24-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.46H1.32C.48 8.15 0 10.02 0 12s.48 3.85 1.32 5.54l3.92-3.15z"
+                            />
+                            <path
+                              fill="#EA4335"
+                              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.37 0 3.3 1.75 1.32 4.75l3.92 3.15c.95-2.88 3.61-5.15 6.76-5.15z"
+                            />
+                          </svg>
+                          <span>Sign in with Google</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            {user.photoURL ? (
+                              <img 
+                                src={user.photoURL} 
+                                alt={user.displayName || "Google User"} 
+                                referrerPolicy="no-referrer"
+                                className="w-10 h-10 rounded-full border border-brand-primary"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-brand-primary/20 border border-brand-primary text-brand-primary font-bold flex items-center justify-center text-sm">
+                                {(user.displayName || "G").charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-brand-bg rounded-full" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-white leading-tight">{user.displayName || "Google Neural Node"}</p>
+                            <p className="text-[10px] text-brand-primary/80 font-mono tracking-tight">{user.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <button
+                            onClick={handleSyncGoogleContacts}
+                            disabled={isSyncingContacts}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-brand-primary text-brand-bg rounded-lg font-bold font-mono text-[10px] tracking-wide hover:bg-brand-primary-hover disabled:opacity-50 transition-all cursor-pointer"
+                          >
+                            {isSyncingContacts ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Globe className="w-3.5 h-3.5" />
+                            )}
+                            <span>SYNC CONTACTS</span>
+                          </button>
+                          <button
+                            onClick={handleGoogleLogout}
+                            className="p-1.5 bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-white/60 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                            title="Sign Out"
+                          >
+                            <LogOut className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   
                   {/* Statuses / Stories Pill Tray */}
                   <div className="px-4 py-3 border-b border-white/5 bg-brand-surface/20">
@@ -753,22 +1207,78 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Category Filter Chips Bar */}
+                  <div className="px-4 py-2 border-b border-white/5 bg-brand-surface/10 animate-fade-in">
+                    <p className="text-[9px] uppercase font-mono tracking-widest text-white/40 mb-1.5 font-bold">Agrupación Profesional</p>
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                      <button
+                        onClick={() => setSelectedCategory("all")}
+                        className={`px-3 py-1 rounded-xl text-[10px] font-mono font-bold tracking-wide transition-all cursor-pointer border ${
+                          selectedCategory === "all"
+                            ? "bg-brand-primary text-brand-bg border-brand-primary"
+                            : "bg-white/5 text-white/50 border-white/5 hover:text-white hover:bg-white/10"
+                        }`}
+                      >
+                        TODOS ({contacts.length})
+                      </button>
+                      {Object.entries(CATEGORY_META).map(([catKey, catVal]) => {
+                        const count = contacts.filter(c => (c.category || "creacion_contenido") === catKey).length;
+                        if (count === 0) return null; // Only show category pills with active hired/synced agents
+                        return (
+                          <button
+                            key={catKey}
+                            onClick={() => setSelectedCategory(catKey)}
+                            className={`px-3 py-1 rounded-xl text-[10px] font-mono font-bold tracking-wide transition-all cursor-pointer border ${
+                              selectedCategory === catKey
+                                ? "bg-brand-primary text-brand-bg border-brand-primary"
+                                : "bg-white/5 text-white/50 border-white/5 hover:text-white hover:bg-white/10"
+                            }`}
+                          >
+                            {catVal.label.toUpperCase()} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {filteredContacts.length === 0 ? (
                     <div className="flex flex-col items-center justify-center text-center p-12 opacity-60">
                       <HelpCircle className="w-10 h-10 text-white/30 mb-2" />
                       <p className="text-xs text-white/80 font-medium">No results match your query</p>
-                      <p className="text-[10px] text-white/40 mt-1">Try searching 'Clara' or 'Ares'.</p>
+                      <p className="text-[10px] text-white/40 mt-1">Try selecting another category or typing another name.</p>
                     </div>
                   ) : (
-                    filteredContacts.map((contact) => (
-                      <ContactCard 
-                        key={contact.id}
-                        contact={contact}
-                        onStartCall={handleStartCall}
-                        onOpenChat={handleOpenDirectChat}
-                        onToggleMemory={handleToggleMemory}
-                      />
-                    ))
+                    <div className="space-y-4 animate-fade-in">
+                      {(Object.entries(groupedContacts) as [string, Contact[]][]).map(([catKey, groupList]) => {
+                        if (groupList.length === 0) return null;
+                        const meta = CATEGORY_META[catKey] || { label: "Otros", color: "text-white/60", bg: "bg-white/5" };
+                        return (
+                          <div key={catKey} className="space-y-1">
+                            {/* Group Header */}
+                            <div className="px-4 py-1.5 flex items-center justify-between bg-brand-surface/30 border-y border-white/5">
+                              <span className={`text-[9px] font-mono font-bold tracking-wider uppercase ${meta.color} flex items-center gap-1.5`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${meta.bg} border border-current`} />
+                                <span>{meta.label}</span>
+                              </span>
+                              <span className="text-[9px] font-mono text-white/30 font-bold">{groupList.length} {groupList.length === 1 ? 'Agente' : 'Agentes'}</span>
+                            </div>
+
+                            {/* Group Items */}
+                            <div className="divide-y divide-white/5">
+                              {groupList.map((contact) => (
+                                <ContactCard 
+                                  key={contact.id}
+                                  contact={contact}
+                                  onStartCall={handleStartCall}
+                                  onOpenChat={handleOpenDirectChat}
+                                  onToggleMemory={handleToggleMemory}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
 
                   {/* Feature Announcement Cards */}
@@ -943,13 +1453,47 @@ export default function App() {
                 </div>
               )}
 
+              {/* GOOGLE CALENDAR HUB INTEGRATION TAB */}
+              {activeTab === "calendar" && (
+                <CalendarHub 
+                  user={user}
+                  accessToken={accessToken}
+                  contacts={contacts}
+                  onGoogleLogin={handleGoogleLogin}
+                />
+              )}
+
+              {/* GOOGLE GMAIL HUB INTEGRATION TAB */}
+              {activeTab === "gmail" && (
+                <GmailHub 
+                  user={user}
+                  accessToken={accessToken}
+                  contacts={contacts}
+                  onGoogleLogin={handleGoogleLogin}
+                />
+              )}
+
+              {/* GOOGLE CLASSROOM HUB INTEGRATION TAB */}
+              {activeTab === "classroom" && (
+                <ClassroomHub 
+                  user={user}
+                  accessToken={accessToken}
+                  onGoogleLogin={handleGoogleLogin}
+                />
+              )}
+
+              {/* TRANSLATION & LANGUAGE EXPERT TAB */}
+              {activeTab === "translate" && (
+                <TranslationHub />
+              )}
+
             </div>
 
             {/* HIGH-END COHESIVE NAVIGATION TAB BAR */}
-            <nav className="p-3 bg-brand-surface border-t border-brand-primary/20 flex items-center justify-around flex-shrink-0 z-20">
+            <nav className="p-3 bg-brand-surface border-t border-brand-primary/20 flex items-center justify-start sm:justify-around gap-5 sm:gap-1 overflow-x-auto no-scrollbar flex-shrink-0 z-20 w-full">
               <button 
                 onClick={() => setActiveTab("chats")}
-                className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${activeTab === "chats" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "chats" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
                 title="Hive Portal"
               >
                 <Sparkles className="w-4.5 h-4.5" />
@@ -958,7 +1502,7 @@ export default function App() {
               
               <button 
                 onClick={() => setActiveTab("services")}
-                className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${activeTab === "services" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "services" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
                 title="Servicios"
               >
                 <Compass className="w-4.5 h-4.5" />
@@ -966,8 +1510,17 @@ export default function App() {
               </button>
 
               <button 
+                onClick={() => setActiveTab("translate")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "translate" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title="Traductor"
+              >
+                <Languages className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-mono tracking-wide font-semibold">Traductor</span>
+              </button>
+
+              <button 
                 onClick={() => setActiveTab("create")}
-                className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${activeTab === "create" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "create" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
                 title="Diseño Core"
               >
                 <Cpu className="w-4.5 h-4.5" />
@@ -976,7 +1529,7 @@ export default function App() {
 
               <button 
                 onClick={() => setActiveTab("billing")}
-                className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${activeTab === "billing" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "billing" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
                 title="Packs"
               >
                 <Coins className="w-4.5 h-4.5" />
@@ -984,8 +1537,35 @@ export default function App() {
               </button>
 
               <button 
+                onClick={() => setActiveTab("calendar")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "calendar" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title="Calendario"
+              >
+                <Calendar className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-mono tracking-wide font-semibold">Calendario</span>
+              </button>
+
+              <button 
+                onClick={() => setActiveTab("gmail")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "gmail" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title="Gmail"
+              >
+                <Mail className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-mono tracking-wide font-semibold">Gmail</span>
+              </button>
+
+              <button 
+                onClick={() => setActiveTab("classroom")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "classroom" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title="Classroom"
+              >
+                <BookOpen className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-mono tracking-wide font-semibold">Classroom</span>
+              </button>
+
+              <button 
                 onClick={() => setActiveTab("calls")}
-                className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${activeTab === "calls" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "calls" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
                 title="Historial"
               >
                 <Phone className="w-4.5 h-4.5" />
@@ -1033,6 +1613,91 @@ export default function App() {
         </div>
       )}
 
+      {/* Google Contacts Import Modal Popup Overlay */}
+      {showSyncModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-brand-surface border border-brand-primary/30 p-5 rounded-3xl w-full max-w-sm flex flex-col max-h-[85vh] shadow-2xl">
+            <div className="flex items-center justify-between pb-3.5 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-brand-primary" />
+                <div>
+                  <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-white">Google Connections</h3>
+                  <p className="text-[9px] text-white/40">Select connections to provision as agents</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSyncModal(false)}
+                className="text-white/40 hover:text-white hover:bg-white/5 px-2 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer animate-pulse"
+              >
+                CLOSE
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-3 space-y-2.5 no-scrollbar">
+              {googleContacts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-10 opacity-50">
+                  <UserPlus className="w-8 h-8 text-white/20 mb-2" />
+                  <p className="text-xs">No Google contacts found.</p>
+                  <p className="text-[9px] max-w-[200px] mt-1 leading-relaxed">
+                    Make sure you have contacts registered in your Google Account.
+                  </p>
+                </div>
+              ) : (
+                googleContacts.map((contact) => {
+                  const alreadyImported = contacts.some(c => c.id === contact.id);
+                  return (
+                    <div 
+                      key={contact.id}
+                      className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl transition-all animate-fade-in"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <img 
+                          src={contact.avatar} 
+                          alt={contact.name} 
+                          referrerPolicy="no-referrer"
+                          className="w-10 h-10 rounded-full object-cover border border-white/10 flex-shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-white truncate">{contact.name}</p>
+                          <p className="text-[10px] text-brand-primary/80 font-mono truncate">{contact.role}</p>
+                          {contact.email && (
+                            <p className="text-[9px] text-white/40 truncate">{contact.email}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleImportGoogleContact(contact)}
+                        disabled={alreadyImported}
+                        className={`ml-2.5 px-3 py-1.5 rounded-xl font-bold font-mono text-[9px] tracking-wide transition-all cursor-pointer flex-shrink-0 flex items-center gap-1 ${
+                          alreadyImported 
+                            ? "bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 cursor-not-allowed" 
+                            : "bg-brand-primary text-brand-bg hover:bg-brand-primary-hover"
+                        }`}
+                      >
+                        {alreadyImported ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>SYNCED</span>
+                          </>
+                        ) : (
+                          <span>IMPORT</span>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[9px] text-white/40 font-mono">
+              <span>Total Connections: {googleContacts.length}</span>
+              <span>Matrix Sync Ready</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Memory Subscription Modal Prompt */}
       {showMemorySubscribePrompt && (() => {
         const targetContact = CONTACTS_DATA.find(c => c.id === showMemorySubscribePrompt);
@@ -1072,6 +1737,13 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* Interactive Walkthrough Tour Guide overlay */}
+      <InteractiveTour 
+        isOpen={isTutorialOpen} 
+        onClose={() => setIsTutorialOpen(false)} 
+        onSelectTab={(tab) => setActiveTab(tab)} 
+      />
     </div>
   );
 }

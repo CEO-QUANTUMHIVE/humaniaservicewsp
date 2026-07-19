@@ -43,6 +43,10 @@ export interface VmConfig {
   latencyMs: number;
   audioQuality: "low" | "medium" | "high";
   isConnected: boolean;
+  liveModelProvider?: "gemini-live" | "openai-realtime" | "groq-live" | "vertex-live";
+  cameraVisionEnabled?: boolean;
+  liveModelApiKey?: string;
+  customPromptInstruction?: string;
 }
 
 export interface BillingPackage {
@@ -62,4 +66,22 @@ export interface ProfessionalServiceCategory {
   count: number;
 }
 
-export type ActiveTab = "chats" | "services" | "create" | "billing" | "calls" | "vm" | "ai";
+export interface CalendarEvent {
+  id: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  start: {
+    dateTime?: string;
+    date?: string;
+    timeZone?: string;
+  };
+  end: {
+    dateTime?: string;
+    date?: string;
+    timeZone?: string;
+  };
+  htmlLink?: string;
+}
+
+export type ActiveTab = "chats" | "services" | "create" | "billing" | "calls" | "vm" | "ai" | "calendar" | "gmail" | "classroom" | "translate";

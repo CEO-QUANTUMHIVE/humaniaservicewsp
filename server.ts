@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
@@ -82,10 +82,10 @@ const PERSONAS_CONFIG: Record<string, { systemInstruction: string; intro: string
 // API chat endpoint proxying Gemini
 app.post("/api/chat", async (req, res) => {
   try {
-    const { persona, messages } = req.body;
+    const { persona, messages, name, role, tagline } = req.body;
     
-    if (!persona || !PERSONAS_CONFIG[persona]) {
-      return res.status(400).json({ error: `Invalid or missing persona: ${persona}` });
+    if (!persona) {
+      return res.status(400).json({ error: "Missing persona ID." });
     }
 
     if (!messages || !Array.isArray(messages)) {
@@ -93,13 +93,21 @@ app.post("/api/chat", async (req, res) => {
     }
 
     const client = getGeminiClient();
-    const config = PERSONAS_CONFIG[persona];
-
-    // Format chat history for Gemini SDK
-    // @google/genai SDK chats structure:
-    // We can use generateContent with systemInstruction or use chats API.
-    // Let's use ai.models.generateContent with the conversation context for maximum flexibility.
     
+    // Dynamically construct system instruction if not a pre-configured persona
+    let systemInstruction = "";
+    if (PERSONAS_CONFIG[persona]) {
+      systemInstruction = PERSONAS_CONFIG[persona].systemInstruction;
+    } else {
+      systemInstruction = 
+        `You are ${name || "a custom contact"}, simulated as an AI agent. ` +
+        `Your role is: ${role || "Asistente Personal"}. ` +
+        `Your background: ${tagline || ""}. ` +
+        `Speak as this person would. Be conversational, engaging, friendly, and helpful. ` +
+        `You are talking to the user over a virtual call, so keep your sentences short, split into concise paragraphs, and fit for a real-time call. ` +
+        `Address the user respectfully and directly.`;
+    }
+
     // Convert client messages to Gemini parts
     const contents = messages.map(msg => ({
       role: msg.role === "assistant" ? "model" : "user",
@@ -110,7 +118,7 @@ app.post("/api/chat", async (req, res) => {
       model: "gemini-3.5-flash",
       contents,
       config: {
-        systemInstruction: config.systemInstruction,
+        systemInstruction,
         temperature: 0.8,
       }
     });
@@ -122,6 +130,81 @@ app.post("/api/chat", async (req, res) => {
     console.error("Gemini API Error in server.ts:", error);
     return res.status(500).json({ 
       error: error.message || "An unexpected error occurred while communicating with Gemini." 
+    });
+  }
+});
+
+// Translation & Language Expert API
+app.post("/api/translate", async (req, res) => {
+  try {
+    const { text, sourceLang, targetLang, mode } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: "Falta el texto a traducir." });
+    }
+
+    const client = getGeminiClient();
+
+    let modeInstruction = "";
+    if (mode === "learn") {
+      modeInstruction = "Concéntrate en el desglose lingüístico, expresiones idiomáticas y gramática para un estudiante de idiomas.";
+    } else if (mode === "formalize") {
+      modeInstruction = "Adapta el texto para que suene altamente profesional, ejecutivo y pulido para contextos corporativos o diplomáticos.";
+    } else if (mode === "casual") {
+      modeInstruction = "Adapta el texto para que suene natural, amigable, coloquial, juvenil y moderno (con jerga común si es pertinente).";
+    } else {
+      modeInstruction = "Proporciona una traducción directa, fluida y de alta fidelidad, junto con opciones alternativas comunes.";
+    }
+
+    const systemInstruction = 
+      "Eres un Traductor Inteligente Avanzado y Experto en Idiomas de la plataforma Quantum Hive.\n" +
+      "Debes analizar el texto proporcionado y responder estrictamente con un objeto JSON válido en español.\n" +
+      "La estructura del JSON de respuesta DEBE ser exactamente la siguiente:\n" +
+      "{\n" +
+      '  "translation": "Texto traducido principal de forma natural",\n' +
+      '  "alternatives": ["Traducción alternativa 1", "Traducción alternativa 2"],\n' +
+      '  "languageDetected": "Idioma de origen detectado",\n' +
+      '  "explanation": "Explicación breve de las sutilezas, matices de traducción, contexto de uso o reglas gramaticales implicadas",\n' +
+      '  "breakdown": [\n' +
+      '    { "word": "Palabra o frase clave", "meaning": "Significado o equivalente", "notes": "Comentario gramatical o fonético corto" }\n' +
+      '  ],\n' +
+      '  "pronunciationTip": "Consejo rápido para la pronunciación natural y entonación"\n' +
+      "}\n" +
+      `Indicaciones especiales para el modo: ${modeInstruction}.\n` +
+      "No incluyas explicaciones fuera del JSON. Devuelve únicamente el objeto JSON.";
+
+    const promptText = `Traduce el siguiente texto de "${sourceLang || "Auto-detectar"}" al idioma "${targetLang || "Español"}":\n\n"${text}"`;
+
+    const response = await client.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [{ role: "user", parts: [{ text: promptText }] }],
+      config: {
+        systemInstruction,
+        temperature: 0.3,
+        responseMimeType: "application/json"
+      }
+    });
+
+    const textResponse = response.text || "{}";
+    try {
+      const parsedData = JSON.parse(textResponse);
+      return res.json(parsedData);
+    } catch (parseErr) {
+      console.warn("Gemini response is not valid JSON, returning fallback parser structure. Raw response:", textResponse);
+      return res.json({
+        translation: textResponse.trim(),
+        alternatives: [],
+        languageDetected: "Auto-detectado",
+        explanation: "Análisis gramatical no disponible por formato.",
+        breakdown: [],
+        pronunciationTip: "Pronuncia las palabras de forma clara y pausada."
+      });
+    }
+
+  } catch (error: any) {
+    console.error("Error in /api/translate:", error);
+    return res.status(500).json({ 
+      error: error.message || "Error al comunicarse con el servicio de traducción inteligente." 
     });
   }
 });

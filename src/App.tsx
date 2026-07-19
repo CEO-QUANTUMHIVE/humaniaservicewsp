@@ -13,11 +13,16 @@ import GmailHub from "./components/GmailHub";
 import ClassroomHub from "./components/ClassroomHub";
 import TranslationHub from "./components/TranslationHub";
 import InteractiveTour from "./components/InteractiveTour";
+import CerebroDatos from "./components/CerebroDatos";
+import EstudioCreativo from "./components/EstudioCreativo";
+import RendimientoRouter from "./components/RendimientoRouter";
+import { translations, LanguageType } from "./lib/translations";
 import { 
   Phone, Video, MessageCircle, Sparkles, Search, 
   Settings, Award, Lock, Clock, Calendar, AlertCircle,
   HelpCircle, CheckCircle2, UserPlus, Volume2, Server, Cpu, Radio, ShieldCheck, Coins, Compass,
-  LogOut, RefreshCw, Layers, Check, Globe, Mail, BookOpen, Languages, Monitor, Smartphone
+  LogOut, RefreshCw, Layers, Check, Globe, Mail, BookOpen, Languages, Monitor, Smartphone, X,
+  Palette
 } from "lucide-react";
 import { 
   auth, 
@@ -250,7 +255,13 @@ const CONTACTS_DATA: Contact[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("chats");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("communication");
+  const [communicationSubTab, setCommunicationSubTab] = useState<"chats" | "services" | "create" | "vm" | "translate">("chats");
+  const [language, setLanguage] = useState<LanguageType>(() => {
+    const saved = localStorage.getItem("quantum_intranet_lang");
+    return (saved === "es" || saved === "en" || saved === "pt") ? saved : "es";
+  });
+  const t = translations[language];
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   
@@ -303,6 +314,7 @@ export default function App() {
   const [activeAddParticipant, setActiveAddParticipant] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isExpandedView, setIsExpandedView] = useState(false);
+  const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(false);
 
   // Auto-open tutorial for first-time visitors
   useEffect(() => {
@@ -904,13 +916,13 @@ export default function App() {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#030508] text-white flex justify-center items-center font-sans antialiased overflow-y-auto p-0 sm:p-4 py-0 sm:py-6">
+    <div className="w-full h-dvh bg-[#030508] text-white flex justify-center items-center font-sans antialiased overflow-hidden p-0 sm:p-2.5">
       
       {/* Immersive Mobile Device Frame mockup centered or Expanded Desktop Layout */}
-      <div className={`relative w-full h-[100dvh] sm:rounded-[36px] bg-brand-bg sm:border-8 sm:border-brand-primary/25 sm:shadow-[0_0_80px_rgba(212,175,55,0.15)] overflow-hidden flex flex-col my-auto transition-all duration-300 ${
+      <div className={`relative w-full h-full sm:rounded-[36px] bg-brand-bg sm:border-8 sm:border-brand-primary/25 sm:shadow-[0_0_80px_rgba(212,175,55,0.15)] overflow-hidden flex flex-col my-auto transition-all duration-300 ${
         isExpandedView 
-          ? "max-w-5xl sm:h-[880px]" 
-          : "max-w-md sm:h-[840px]"
+          ? "max-w-5xl sm:h-[calc(100vh-24px)] sm:max-h-[860px]" 
+          : "max-w-md sm:h-[calc(100vh-24px)] sm:max-h-[820px]"
       }`}>
         
         {/* Ringing/Calling Screen Simulator Overlay */}
@@ -1035,9 +1047,9 @@ export default function App() {
                 </div>
                 <div>
                   <h1 className="text-sm font-black tracking-widest text-white uppercase font-sans flex items-center gap-1.5">
-                    <span>QUANTUM HIVE</span>
+                    <span>{t.brandTitle}</span>
                   </h1>
-                  <p className="text-[8px] text-brand-primary font-mono tracking-widest uppercase">Mother Intelligence Core</p>
+                  <p className="text-[8px] text-brand-primary font-mono tracking-widest uppercase">{t.brandSubtitle}</p>
                 </div>
               </div>
 
@@ -1048,15 +1060,24 @@ export default function App() {
                   title="Recargar Minutos"
                 >
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{(availableSeconds / 60).toFixed(1)} MIN</span>
+                  <span>{(availableSeconds / 60).toFixed(1)} {t.minutesLabel}</span>
                 </button>
                 
                 <button
                   onClick={() => setIsExpandedView(!isExpandedView)}
                   className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all cursor-pointer"
-                  title={isExpandedView ? "Vista de Teléfono" : "Vista Expandida"}
+                  title={isExpandedView ? t.phoneView : t.expandedView}
                 >
                   {isExpandedView ? <Smartphone className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={() => setIsLanguageModalOpen(true)}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                  title="Seleccionar Idioma / Select Language"
+                >
+                  <Globe className="w-3.5 h-3.5 text-brand-primary" />
+                  <span className="text-[9px] font-mono font-black">{language.toUpperCase()}</span>
                 </button>
 
                 <button
@@ -1070,13 +1091,13 @@ export default function App() {
             </header>
 
             {/* Quick search panel (only visible on Core Portal Chats/Services) */}
-            {(activeTab === "chats" || activeTab === "services") && (
+            {(activeTab === "communication" && (communicationSubTab === "chats" || communicationSubTab === "services")) && (
               <div className="px-4 py-3 bg-brand-surface/40 flex-shrink-0 border-b border-white/5">
                 <div className="relative">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                   <input 
                     type="text"
-                    placeholder="Buscar avatares, roles, o protocolos..."
+                    placeholder={t.searchPlaceholder}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full bg-black/40 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-white/40 focus:outline-none focus:border-brand-primary/60 transition-colors"
@@ -1088,488 +1109,378 @@ export default function App() {
             {/* DYNAMIC SCROLL CONTAINER (TABS PORTAL) */}
             <div className="flex-1 overflow-y-auto bg-brand-bg">
               
-              {/* CHATS TAB LIST */}
-              {activeTab === "chats" && (
-                <div className="divide-y divide-white/5 animate-fade-in">
-                  
-                  {/* Google Connection & Account Manager */}
-                  <div className="p-4 bg-gradient-to-r from-brand-primary/10 via-brand-surface to-brand-primary/5 border-b border-brand-primary/20 flex flex-col gap-3">
-                    {!user ? (
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                        <div className="space-y-1 text-center sm:text-left">
-                          <h4 className="text-[11px] font-mono font-bold tracking-widest text-brand-primary uppercase flex items-center gap-1.5 justify-center sm:justify-start">
-                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                            <span>CLOUD PERSISTENCE LAYER</span>
-                          </h4>
-                          <p className="text-xs text-white/90 font-bold font-sans">Connect Google to Save Agents & Sync Contacts</p>
-                          <p className="text-[10px] text-white/50 leading-relaxed">
-                            Access real-time Google Contacts & secure cloud synchronization.
-                          </p>
-                        </div>
-                        <button
-                          onClick={handleGoogleLogin}
-                          className="flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 hover:bg-gray-100 rounded-xl font-bold font-sans text-xs shadow-md transition-all cursor-pointer border border-gray-300"
-                        >
-                          <svg className="w-4.5 h-4.5" viewBox="0 0 24 24">
-                            <path
-                              fill="#4285F4"
-                              d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.72z"
-                            />
-                            <path
-                              fill="#34A853"
-                              d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.15 0-5.81-2.13-6.76-5.01H1.32v3.15C3.3 22.25 7.37 24 12 24z"
-                            />
-                            <path
-                              fill="#FBBC05"
-                              d="M5.24 14.19c-.24-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.46H1.32C.48 8.15 0 10.02 0 12s.48 3.85 1.32 5.54l3.92-3.15z"
-                            />
-                            <path
-                              fill="#EA4335"
-                              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.37 0 3.3 1.75 1.32 4.75l3.92 3.15c.95-2.88 3.61-5.15 6.76-5.15z"
-                            />
-                          </svg>
-                          <span>Sign in with Google</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                            {user.photoURL ? (
-                              <img 
-                                src={user.photoURL} 
-                                alt={user.displayName || "Google User"} 
-                                referrerPolicy="no-referrer"
-                                className="w-10 h-10 rounded-full border border-brand-primary"
-                              />
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-brand-primary/20 border border-brand-primary text-brand-primary font-bold flex items-center justify-center text-sm">
-                                {(user.displayName || "G").charAt(0).toUpperCase()}
+              {/* COMMUNICATIONS CORE INTEGRATED TAB */}
+              {activeTab === "communication" && (
+                <div className="flex flex-col h-full animate-fade-in" id="comm-hub-integrated">
+                  {/* Sub-navigation bar within Communication */}
+                  <div className="flex border-b border-white/5 bg-[#0a1017] p-1 sticky top-0 z-10 overflow-x-auto no-scrollbar flex-shrink-0">
+                    <button
+                      onClick={() => setCommunicationSubTab("chats")}
+                      className={`px-3 py-2 text-center text-[10px] font-mono font-bold tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0 ${
+                        communicationSubTab === "chats" 
+                          ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20" 
+                          : "text-white/50 hover:text-white"
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{t.tabChats.toUpperCase()}</span>
+                    </button>
+                    <button
+                      onClick={() => setCommunicationSubTab("services")}
+                      className={`px-3 py-2 text-center text-[10px] font-mono font-bold tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0 ${
+                        communicationSubTab === "services" 
+                          ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20" 
+                          : "text-white/50 hover:text-white"
+                      }`}
+                    >
+                      <Compass className="w-3.5 h-3.5" />
+                      <span>{t.tabServices.toUpperCase()}</span>
+                    </button>
+                    <button
+                      onClick={() => setCommunicationSubTab("create")}
+                      className={`px-3 py-2 text-center text-[10px] font-mono font-bold tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0 ${
+                        communicationSubTab === "create" 
+                          ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20" 
+                          : "text-white/50 hover:text-white"
+                      }`}
+                    >
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>{t.tabCreate.toUpperCase()}</span>
+                    </button>
+                    <button
+                      onClick={() => setCommunicationSubTab("vm")}
+                      className={`px-3 py-2 text-center text-[10px] font-mono font-bold tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0 ${
+                        communicationSubTab === "vm" 
+                          ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20" 
+                          : "text-white/50 hover:text-white"
+                      }`}
+                    >
+                      <Monitor className="w-3.5 h-3.5" />
+                      <span>VM LINK</span>
+                    </button>
+                    <button
+                      onClick={() => setCommunicationSubTab("translate")}
+                      className={`px-3 py-2 text-center text-[10px] font-mono font-bold tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0 ${
+                        communicationSubTab === "translate" 
+                          ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20" 
+                          : "text-white/50 hover:text-white"
+                      }`}
+                    >
+                      <Languages className="w-3.5 h-3.5" />
+                      <span>{t.tabTranslate.toUpperCase()}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex-1">
+                    {communicationSubTab === "chats" && (
+                      <div className="divide-y divide-white/5">
+                        {/* Google Connection & Account Manager */}
+                        <div className="p-4 bg-gradient-to-r from-brand-primary/10 via-brand-surface to-brand-primary/5 border-b border-brand-primary/20 flex flex-col gap-3 text-left">
+                          {!user ? (
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                              <div className="space-y-1 text-center sm:text-left">
+                                <h4 className="text-[11px] font-mono font-bold tracking-widest text-brand-primary uppercase flex items-center gap-1.5 justify-center sm:justify-start">
+                                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                                  <span>CLOUD PERSISTENCE LAYER</span>
+                                </h4>
+                                <p className="text-xs text-white/90 font-bold font-sans">Connect Google to Save Agents & Sync Contacts</p>
+                                <p className="text-[10px] text-white/50 leading-relaxed">
+                                  Access real-time Google Contacts & secure cloud synchronization.
+                                </p>
                               </div>
-                            )}
-                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-brand-bg rounded-full" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-white leading-tight">{user.displayName || "Google Neural Node"}</p>
-                            <p className="text-[10px] text-brand-primary/80 font-mono tracking-tight">{user.email}</p>
+                              <button
+                                onClick={handleGoogleLogin}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-white text-gray-700 hover:bg-gray-100 rounded-xl font-bold font-sans text-xs shadow-md transition-all cursor-pointer border border-gray-300"
+                              >
+                                <svg className="w-4.5 h-4.5" viewBox="0 0 24 24">
+                                  <path
+                                    fill="#4285F4"
+                                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.72z"
+                                  />
+                                  <path
+                                    fill="#34A853"
+                                    d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.15 0-5.81-2.13-6.76-5.01H1.32v3.15C3.3 22.25 7.37 24 12 24z"
+                                  />
+                                  <path
+                                    fill="#FBBC05"
+                                    d="M5.24 14.19c-.24-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.46H1.32C.48 8.15 0 10.02 0 12s.48 3.85 1.32 5.54l3.92-3.15z"
+                                  />
+                                  <path
+                                    fill="#EA4335"
+                                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.37 0 3.3 1.75 1.32 4.75l3.92 3.15c.95-2.88 3.61-5.15 6.76-5.15z"
+                                  />
+                                </svg>
+                                <span>Sign in with Google</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 text-left">
+                                <div className="relative">
+                                  {user.photoURL ? (
+                                    <img 
+                                      src={user.photoURL} 
+                                      alt={user.displayName || "Google User"} 
+                                      referrerPolicy="no-referrer"
+                                      className="w-10 h-10 rounded-full border border-brand-primary"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-full bg-brand-primary/20 border border-brand-primary text-brand-primary font-bold flex items-center justify-center text-sm">
+                                      {(user.displayName || "G").charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-brand-bg rounded-full" />
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-white leading-tight">{user.displayName || "Google Neural Node"}</p>
+                                  <p className="text-[10px] text-brand-primary/80 font-mono tracking-tight">{user.email}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <button
+                                  onClick={handleSyncGoogleContacts}
+                                  disabled={isSyncingContacts}
+                                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-brand-primary text-brand-bg rounded-lg font-bold font-mono text-[10px] tracking-wide hover:bg-brand-primary-hover disabled:opacity-50 transition-all cursor-pointer"
+                                >
+                                  {isSyncingContacts ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Globe className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>SYNC CONTACTS</span>
+                                </button>
+                                <button
+                                  onClick={handleGoogleLogout}
+                                  className="p-1.5 bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-white/60 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                                  title="Sign Out"
+                                >
+                                  <LogOut className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Statuses / Stories Pill Tray */}
+                        <div className="px-4 py-3 border-b border-white/5 bg-brand-surface/20 text-left">
+                          <p className="text-[9px] uppercase font-mono tracking-widest text-white/40 mb-2 font-bold font-sans">Active Avatar Node Matrix</p>
+                          <div className="flex items-center gap-3.5 overflow-x-auto no-scrollbar py-1">
+                            {contacts.map(c => (
+                              <div 
+                                key={c.id} 
+                                className="flex flex-col items-center flex-shrink-0 group cursor-pointer"
+                                onClick={() => handleStartCall(c)}
+                              >
+                                <div className="relative">
+                                  <img 
+                                    src={c.avatar} 
+                                    alt={c.name} 
+                                    referrerPolicy="no-referrer"
+                                    className="w-12 h-12 rounded-full object-cover border-2 border-brand-primary group-hover:border-white transition-all p-0.5" 
+                                  />
+                                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-brand-primary border-2 border-brand-bg rounded-full animate-pulse" />
+                                </div>
+                                <span className="text-[10px] text-white/80 font-mono mt-1 group-hover:text-brand-primary truncate max-w-[65px] text-center">
+                                  {c.name}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                          <button
-                            onClick={handleSyncGoogleContacts}
-                            disabled={isSyncingContacts}
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-brand-primary text-brand-bg rounded-lg font-bold font-mono text-[10px] tracking-wide hover:bg-brand-primary-hover disabled:opacity-50 transition-all cursor-pointer"
-                          >
-                            {isSyncingContacts ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Globe className="w-3.5 h-3.5" />
-                            )}
-                            <span>SYNC CONTACTS</span>
-                          </button>
-                          <button
-                            onClick={handleGoogleLogout}
-                            className="p-1.5 bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-white/60 hover:text-red-400 rounded-lg transition-all cursor-pointer"
-                            title="Sign Out"
-                          >
-                            <LogOut className="w-4 h-4" />
-                          </button>
+                        {/* Category Filter Chips Bar */}
+                        <div className="px-4 py-2 border-b border-white/5 bg-brand-surface/10 text-left">
+                          <p className="text-[9px] uppercase font-mono tracking-widest text-white/40 mb-1.5 font-bold">Agrupación Profesional</p>
+                          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                            <button
+                              onClick={() => setSelectedCategory("all")}
+                              className={`px-3 py-1 rounded-xl text-[10px] font-mono font-bold tracking-wide transition-all cursor-pointer border ${
+                                selectedCategory === "all"
+                                  ? "bg-brand-primary text-brand-bg border-brand-primary"
+                                  : "bg-white/5 text-white/50 border-white/5 hover:text-white hover:bg-white/10"
+                              }`}
+                            >
+                              TODOS ({contacts.length})
+                            </button>
+                            {Object.entries(CATEGORY_META).map(([catKey, catVal]) => {
+                              const count = contacts.filter(c => (c.category || "creacion_contenido") === catKey).length;
+                              if (count === 0) return null;
+                              return (
+                                <button
+                                  key={catKey}
+                                  onClick={() => setSelectedCategory(catKey)}
+                                  className={`px-3 py-1 rounded-xl text-[10px] font-mono font-bold tracking-wide transition-all cursor-pointer border ${
+                                    selectedCategory === catKey
+                                      ? "bg-brand-primary text-brand-bg border-brand-primary"
+                                      : "bg-white/5 text-white/50 border-white/5 hover:text-white hover:bg-white/10"
+                                  }`}
+                                >
+                                  {catVal.label.toUpperCase()} ({count})
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {filteredContacts.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center text-center p-12 opacity-60">
+                            <HelpCircle className="w-10 h-10 text-white/30 mb-2" />
+                            <p className="text-xs text-white/80 font-medium">No results match your query</p>
+                            <p className="text-[10px] text-white/40 mt-1">Try selecting another category or typing another name.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-4 animate-fade-in text-left">
+                            {(Object.entries(groupedContacts) as [string, Contact[]][]).map(([catKey, groupList]) => {
+                              if (groupList.length === 0) return null;
+                              const meta = CATEGORY_META[catKey] || { label: "Otros", color: "text-white/60", bg: "bg-white/5" };
+                              return (
+                                <div key={catKey} className="space-y-1">
+                                  {/* Group Header */}
+                                  <div className="px-4 py-1.5 flex items-center justify-between bg-brand-surface/30 border-y border-white/5">
+                                    <span className={`text-[9px] font-mono font-bold tracking-wider uppercase ${meta.color} flex items-center gap-1.5`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${meta.bg} border border-current`} />
+                                      <span>{meta.label}</span>
+                                    </span>
+                                    <span className="text-[9px] font-mono text-white/30 font-bold">{groupList.length} {groupList.length === 1 ? 'Agente' : 'Agentes'}</span>
+                                  </div>
+
+                                  {/* Group Items */}
+                                  <div className="divide-y divide-white/5">
+                                    {groupList.map((contact) => (
+                                      <ContactCard 
+                                        key={contact.id}
+                                        contact={contact}
+                                        onStartCall={handleStartCall}
+                                        onOpenChat={handleOpenDirectChat}
+                                        onToggleMemory={handleToggleMemory}
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Feature Announcement Cards */}
+                        <div className="p-4 m-4 bg-gradient-to-br from-brand-surface to-[#121824] border border-brand-primary/20 rounded-2xl text-left">
+                          <div className="flex items-center gap-2 text-brand-primary">
+                            <Award className="w-4.5 h-4.5" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest font-mono">Quantum Hive Engine Spec</span>
+                          </div>
+                          <h4 className="text-xs font-bold text-white mt-1.5 font-sans">Real-time GPU Avatar Synthesis</h4>
+                          <p className="text-[10.5px] text-white/50 leading-relaxed mt-1">
+                            Our platform supports zero-latency audio streaming direct to your VM. Configure the socket link in the <b>VM Server</b> tab to route client PCM arrays to your custom voice-model hardware.
+                          </p>
                         </div>
                       </div>
                     )}
-                  </div>
-                  
-                  {/* Statuses / Stories Pill Tray */}
-                  <div className="px-4 py-3 border-b border-white/5 bg-brand-surface/20">
-                    <p className="text-[9px] uppercase font-mono tracking-widest text-white/40 mb-2 font-bold font-sans">Active Avatar Node Matrix</p>
-                    <div className="flex items-center gap-3.5 overflow-x-auto no-scrollbar py-1">
-                      {contacts.map(c => (
-                        <div 
-                          key={c.id} 
-                          className="flex flex-col items-center flex-shrink-0 group cursor-pointer"
-                          onClick={() => handleStartCall(c)}
-                        >
-                          <div className="relative">
-                            <img 
-                              src={c.avatar} 
-                              alt={c.name} 
-                              referrerPolicy="no-referrer"
-                              className="w-12 h-12 rounded-full object-cover border-2 border-brand-primary group-hover:border-white transition-all p-0.5" 
-                            />
-                            <span className="absolute bottom-0 right-0 w-3 h-3 bg-brand-primary border-2 border-brand-bg rounded-full animate-pulse" />
-                          </div>
-                          <span className="text-[10px] text-white/80 font-mono mt-1 group-hover:text-brand-primary truncate max-w-[65px] text-center">
-                            {c.name}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
 
-                  {/* Category Filter Chips Bar */}
-                  <div className="px-4 py-2 border-b border-white/5 bg-brand-surface/10 animate-fade-in">
-                    <p className="text-[9px] uppercase font-mono tracking-widest text-white/40 mb-1.5 font-bold">Agrupación Profesional</p>
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
-                      <button
-                        onClick={() => setSelectedCategory("all")}
-                        className={`px-3 py-1 rounded-xl text-[10px] font-mono font-bold tracking-wide transition-all cursor-pointer border ${
-                          selectedCategory === "all"
-                            ? "bg-brand-primary text-brand-bg border-brand-primary"
-                            : "bg-white/5 text-white/50 border-white/5 hover:text-white hover:bg-white/10"
-                        }`}
-                      >
-                        TODOS ({contacts.length})
-                      </button>
-                      {Object.entries(CATEGORY_META).map(([catKey, catVal]) => {
-                        const count = contacts.filter(c => (c.category || "creacion_contenido") === catKey).length;
-                        if (count === 0) return null; // Only show category pills with active hired/synced agents
-                        return (
-                          <button
-                            key={catKey}
-                            onClick={() => setSelectedCategory(catKey)}
-                            className={`px-3 py-1 rounded-xl text-[10px] font-mono font-bold tracking-wide transition-all cursor-pointer border ${
-                              selectedCategory === catKey
-                                ? "bg-brand-primary text-brand-bg border-brand-primary"
-                                : "bg-white/5 text-white/50 border-white/5 hover:text-white hover:bg-white/10"
-                            }`}
-                          >
-                            {catVal.label.toUpperCase()} ({count})
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                    {communicationSubTab === "services" && (
+                      <ProfessionalServices 
+                        allServices={CONTACTS_DATA}
+                        hiredContacts={contacts}
+                        onHireService={handleHireService}
+                        onStartCall={handleStartCall}
+                        onOpenChat={handleOpenDirectChat}
+                        onGoBack={() => setCommunicationSubTab("chats")}
+                      />
+                    )}
 
-                  {filteredContacts.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center text-center p-12 opacity-60">
-                      <HelpCircle className="w-10 h-10 text-white/30 mb-2" />
-                      <p className="text-xs text-white/80 font-medium">No results match your query</p>
-                      <p className="text-[10px] text-white/40 mt-1">Try selecting another category or typing another name.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4 animate-fade-in">
-                      {(Object.entries(groupedContacts) as [string, Contact[]][]).map(([catKey, groupList]) => {
-                        if (groupList.length === 0) return null;
-                        const meta = CATEGORY_META[catKey] || { label: "Otros", color: "text-white/60", bg: "bg-white/5" };
-                        return (
-                          <div key={catKey} className="space-y-1">
-                            {/* Group Header */}
-                            <div className="px-4 py-1.5 flex items-center justify-between bg-brand-surface/30 border-y border-white/5">
-                              <span className={`text-[9px] font-mono font-bold tracking-wider uppercase ${meta.color} flex items-center gap-1.5`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${meta.bg} border border-current`} />
-                                <span>{meta.label}</span>
-                              </span>
-                              <span className="text-[9px] font-mono text-white/30 font-bold">{groupList.length} {groupList.length === 1 ? 'Agente' : 'Agentes'}</span>
-                            </div>
+                    {communicationSubTab === "create" && (
+                      <AgentCreator 
+                        onAddAgent={handleAddCustomAgent}
+                      />
+                    )}
 
-                            {/* Group Items */}
-                            <div className="divide-y divide-white/5">
-                              {groupList.map((contact) => (
-                                <ContactCard 
-                                  key={contact.id}
-                                  contact={contact}
-                                  onStartCall={handleStartCall}
-                                  onOpenChat={handleOpenDirectChat}
-                                  onToggleMemory={handleToggleMemory}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                    {communicationSubTab === "vm" && (
+                      <VmConfigurator config={vmConfig} onChange={setVmConfig} />
+                    )}
 
-                  {/* Feature Announcement Cards */}
-                  <div className="p-4 m-4 bg-gradient-to-br from-brand-surface to-[#121824] border border-brand-primary/20 rounded-2xl">
-                    <div className="flex items-center gap-2 text-brand-primary">
-                      <Award className="w-4.5 h-4.5" />
-                      <span className="text-[10px] font-bold uppercase tracking-widest font-mono">Quantum Hive Engine Spec</span>
-                    </div>
-                    <h4 className="text-xs font-bold text-white mt-1.5 font-sans">Real-time GPU Avatar Synthesis</h4>
-                    <p className="text-[10.5px] text-white/50 leading-relaxed mt-1">
-                      Our platform supports zero-latency audio streaming direct to your VM. Configure the socket link in the <b>VM Server</b> tab to route client PCM arrays to your custom voice-model hardware.
-                    </p>
+                    {communicationSubTab === "translate" && (
+                      <TranslationHub />
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* PROFESSIONAL SERVICES TAB */}
-              {activeTab === "services" && (
-                <ProfessionalServices 
-                  allServices={CONTACTS_DATA}
-                  hiredContacts={contacts}
-                  onHireService={handleHireService}
-                  onStartCall={handleStartCall}
-                  onOpenChat={handleOpenDirectChat}
-                  onGoBack={() => setActiveTab("chats")}
+              {/* BRAIN & WORKSPACE INTEGRATED HUB */}
+              {activeTab === "brain" && (
+                <CerebroDatos 
+                  language={language}
+                  user={user}
+                  accessToken={accessToken}
+                  contacts={contacts}
+                  onGoogleLogin={handleGoogleLogin}
                 />
               )}
 
-              {/* AGENT & PERSONALITY CREATION TAB */}
-              {activeTab === "create" && (
-                <AgentCreator 
-                  onAddAgent={handleAddCustomAgent}
+              {/* CREATIVE STUDIO HUB */}
+              {activeTab === "creative" && (
+                <EstudioCreativo 
+                  language={language}
                 />
               )}
 
-              {/* BILLING PLANS & PACKS TAB */}
-              {activeTab === "billing" && (
-                <BillingHub 
+              {/* PERFORMANCE ROUTER & BILLING HUB */}
+              {activeTab === "performance" && (
+                <RendimientoRouter 
+                  language={language}
                   currentMinutes={Number((availableSeconds / 60).toFixed(1))}
                   onAddMinutes={handleAddMinutes}
                   isMemoryPlanActive={isMemoryPlanActive}
                   onToggleMemoryPlan={handleToggleMemoryPlan}
+                  callHistory={callHistory}
                 />
-              )}
-
-              {/* CALLS HISTORY LIST TAB */}
-              {activeTab === "calls" && (
-                <div className="p-4 space-y-4 animate-fade-in">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-[10px] font-mono uppercase tracking-wider text-white/40 font-bold">Recent Communications</h3>
-                    <button 
-                      onClick={() => {
-                        if (confirm("Are you sure you want to clear call history?")) {
-                          setCallHistory([]);
-                        }
-                      }}
-                      className="text-[10px] font-mono text-brand-primary hover:underline"
-                    >
-                      Clear Logs
-                    </button>
-                  </div>
-
-                  {callHistory.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center text-center py-16 opacity-50">
-                      <Clock className="w-10 h-10 text-white/20 mb-2" />
-                      <p className="text-xs">No calling history.</p>
-                      <p className="text-[10px]">Start video call sessions on the chats screen!</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {callHistory.map((log) => (
-                        <div 
-                          key={log.id} 
-                          className="flex items-center justify-between p-3.5 bg-brand-surface/40 hover:bg-brand-surface/80 border border-white/5 rounded-xl transition-all"
-                        >
-                          <div className="flex items-center gap-3">
-                            <img 
-                              src={log.contact.avatar} 
-                              alt={log.contact.name} 
-                              referrerPolicy="no-referrer"
-                              className="w-10 h-10 rounded-full object-cover border border-white/10" 
-                            />
-                            <div>
-                              <p className="text-xs font-bold text-white">{log.contact.name}</p>
-                              <div className="flex items-center gap-1.5 text-[10px] text-white/50 mt-1">
-                                <span className={log.status === "incoming" ? "text-brand-primary" : "text-white/40"}>
-                                  {log.status === "incoming" ? "↙ Received" : "↗ Placed"}
-                                </span>
-                                <span>•</span>
-                                <span className="font-mono">{log.date}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <span className="text-[9px] font-mono bg-white/5 px-2 py-0.5 rounded border border-white/5 text-white/70">
-                              {log.duration}
-                            </span>
-                            <button 
-                              onClick={() => handleStartCall(log.contact)}
-                              className="p-2 rounded-full bg-brand-primary/10 hover:bg-brand-primary text-brand-primary hover:text-brand-bg transition-colors cursor-pointer"
-                            >
-                              <Video className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* VM LINK INTEGRATION TAB */}
-              {activeTab === "vm" && (
-                <VmConfigurator config={vmConfig} onChange={setVmConfig} />
-              )}
-
-              {/* COMM CORE SETTINGS & SYSTEM INFO TAB */}
-              {activeTab === "ai" && (
-                <div className="p-5 space-y-5 animate-fade-in">
-                  <div className="flex items-center gap-2.5 pb-2 border-b border-white/10">
-                    <Settings className="w-5 h-5 text-brand-primary" />
-                    <h3 className="text-sm font-semibold">Security & Protocols</h3>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="p-4 rounded-xl bg-white/5 border border-brand-primary/20">
-                      <h4 className="text-xs font-bold text-brand-primary uppercase tracking-wider font-mono">System Telemetry Specs</h4>
-                      <div className="grid grid-cols-2 gap-3.5 mt-3">
-                        <div className="bg-black/30 p-2.5 rounded-lg border border-white/5">
-                          <span className="text-[9px] text-white/40 block font-mono">GATEWAY STATUS</span>
-                          <span className="text-xs text-brand-primary font-bold mt-1 block flex items-center gap-1 font-mono">
-                            <span className="w-2 h-2 bg-brand-primary rounded-full animate-ping" />
-                            <span>ONLINE</span>
-                          </span>
-                        </div>
-                        <div className="bg-black/30 p-2.5 rounded-lg border border-white/5">
-                          <span className="text-[9px] text-white/40 block font-mono">HYBRID FALLBACK</span>
-                          <span className="text-xs text-white/90 font-mono font-bold mt-1 block truncate">Gemini 3.5 Flash</span>
-                        </div>
-                        <div className="bg-black/30 p-2.5 rounded-lg border border-white/5">
-                          <span className="text-[9px] text-white/40 block font-mono">VM LINK MODE</span>
-                          <span className="text-xs text-brand-primary font-mono font-bold mt-1 block uppercase">
-                            {vmConfig.mode === "vm" ? "Direct VM" : "Simulation"}
-                          </span>
-                        </div>
-                        <div className="bg-black/30 p-2.5 rounded-lg border border-white/5">
-                          <span className="text-[9px] text-white/40 block font-mono">ACTIVE MATRIX</span>
-                          <span className="text-xs text-white/90 font-bold mt-1 block font-mono">{contacts.length} Hive Avatars</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Integration Verification</h4>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2.5 text-xs text-white/80 p-2 bg-white/5 rounded-lg">
-                          <CheckCircle2 className="w-4.5 h-4.5 text-brand-primary" />
-                          <span>VM Gateway: Handshake active</span>
-                        </div>
-                        <div className="flex items-center gap-2.5 text-xs text-white/80 p-2 bg-white/5 rounded-lg">
-                          <CheckCircle2 className="w-4.5 h-4.5 text-brand-primary" />
-                          <span>Mother Intelligence Core: Synced</span>
-                        </div>
-                        <div className="flex items-center gap-2.5 text-xs text-white/80 p-2 bg-white/5 rounded-lg">
-                          <CheckCircle2 className="w-4.5 h-4.5 text-brand-primary" />
-                          <span>Interactive PIP Video: Functional</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* GOOGLE CALENDAR HUB INTEGRATION TAB */}
-              {activeTab === "calendar" && (
-                <CalendarHub 
-                  user={user}
-                  accessToken={accessToken}
-                  contacts={contacts}
-                  onGoogleLogin={handleGoogleLogin}
-                />
-              )}
-
-              {/* GOOGLE GMAIL HUB INTEGRATION TAB */}
-              {activeTab === "gmail" && (
-                <GmailHub 
-                  user={user}
-                  accessToken={accessToken}
-                  contacts={contacts}
-                  onGoogleLogin={handleGoogleLogin}
-                />
-              )}
-
-              {/* GOOGLE CLASSROOM HUB INTEGRATION TAB */}
-              {activeTab === "classroom" && (
-                <ClassroomHub 
-                  user={user}
-                  accessToken={accessToken}
-                  onGoogleLogin={handleGoogleLogin}
-                />
-              )}
-
-              {/* TRANSLATION & LANGUAGE EXPERT TAB */}
-              {activeTab === "translate" && (
-                <TranslationHub />
               )}
 
             </div>
 
             {/* HIGH-END COHESIVE NAVIGATION TAB BAR */}
-            <nav className="p-3 bg-brand-surface border-t border-brand-primary/20 flex items-center justify-start sm:justify-around gap-5 sm:gap-1 overflow-x-auto no-scrollbar flex-shrink-0 z-20 w-full">
+            <nav className="p-3 bg-brand-surface border-t border-brand-primary/20 flex items-center justify-around gap-2 flex-shrink-0 z-20 w-full">
               <button 
-                onClick={() => setActiveTab("chats")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "chats" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Hive Portal"
+                onClick={() => setActiveTab("communication")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "communication" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title={language === "en" ? "Communications" : language === "pt" ? "Comunicação" : "Comunicaciones"}
               >
-                <Sparkles className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Hive Portal</span>
+                <MessageCircle className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-mono tracking-wide font-semibold">
+                  {language === "en" ? "COMMUNICATIONS" : language === "pt" ? "COMUNICAÇÃO" : "COMUNICACIONES"}
+                </span>
               </button>
               
               <button 
-                onClick={() => setActiveTab("services")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "services" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Servicios"
+                onClick={() => setActiveTab("brain")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "brain" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title={language === "en" ? "Brain Data" : language === "pt" ? "Cérebro Dados" : "Cerebro Datos"}
               >
                 <Compass className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Servicios</span>
+                <span className="text-[9px] font-mono tracking-wide font-semibold">
+                  {language === "en" ? "BRAIN DATA" : language === "pt" ? "CÉREBRO" : "CEREBRO DATOS"}
+                </span>
               </button>
 
               <button 
-                onClick={() => setActiveTab("translate")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "translate" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Traductor"
+                onClick={() => setActiveTab("creative")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "creative" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title={language === "en" ? "Creative Studio" : language === "pt" ? "Estúdio Criativo" : "Estudio Creativo"}
               >
-                <Languages className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Traductor</span>
+                <Palette className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-mono tracking-wide font-semibold">
+                  {language === "en" ? "STUDIO" : language === "pt" ? "ESTÚDIO" : "ESTUDIO CREATIVO"}
+                </span>
               </button>
 
               <button 
-                onClick={() => setActiveTab("create")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "create" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Diseño Core"
+                onClick={() => setActiveTab("performance")}
+                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "performance" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
+                title={language === "en" ? "Performance" : language === "pt" ? "Desempenho" : "Rendimiento"}
               >
                 <Cpu className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Diseño Core</span>
-              </button>
-
-              <button 
-                onClick={() => setActiveTab("billing")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "billing" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Packs"
-              >
-                <Coins className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Packs</span>
-              </button>
-
-              <button 
-                onClick={() => setActiveTab("calendar")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "calendar" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Calendario"
-              >
-                <Calendar className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Calendario</span>
-              </button>
-
-              <button 
-                onClick={() => setActiveTab("gmail")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "gmail" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Gmail"
-              >
-                <Mail className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Gmail</span>
-              </button>
-
-              <button 
-                onClick={() => setActiveTab("classroom")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "classroom" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Classroom"
-              >
-                <BookOpen className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Classroom</span>
-              </button>
-
-              <button 
-                onClick={() => setActiveTab("calls")}
-                className={`flex flex-col items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${activeTab === "calls" ? "text-brand-primary scale-105 font-bold" : "text-white/45 hover:text-white/90"}`}
-                title="Historial"
-              >
-                <Phone className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-mono tracking-wide font-semibold">Historial</span>
+                <span className="text-[9px] font-mono tracking-wide font-semibold">
+                  {language === "en" ? "PERFORMANCE" : language === "pt" ? "DESEMPENHO" : "RENDIMIENTO"}
+                </span>
               </button>
             </nav>
 
@@ -1738,11 +1649,79 @@ export default function App() {
         );
       })()}
 
+      {/* Intranet Language Selection Modal */}
+      {isLanguageModalOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-brand-surface border border-brand-primary/30 p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl relative">
+            
+            {/* Close button */}
+            <button 
+              onClick={() => setIsLanguageModalOpen(false)}
+              className="absolute top-4 right-4 p-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="text-center space-y-1.5 pt-2">
+              <div className="w-12 h-12 bg-brand-primary/10 border border-brand-primary/30 text-brand-primary rounded-full flex items-center justify-center mx-auto mb-1">
+                <Globe className="w-6 h-6 animate-pulse" />
+              </div>
+              <h3 className="text-sm font-bold text-white tracking-wide uppercase">{t.changeLanguageTitle}</h3>
+              <p className="text-[11px] text-white/60 leading-relaxed">
+                {t.changeLanguageDesc}
+              </p>
+            </div>
+
+            <div className="space-y-2.5">
+              {[
+                { key: "es", label: "Español", flag: "🇪🇸", native: "Spanish" },
+                { key: "en", label: "English", flag: "🇺🇸", native: "English" },
+                { key: "pt", label: "Português", flag: "🇧🇷", native: "Portuguese" }
+              ].map((lang) => {
+                const isActive = language === lang.key;
+                return (
+                  <button
+                    key={lang.key}
+                    onClick={() => {
+                      setLanguage(lang.key as LanguageType);
+                      localStorage.setItem("quantum_intranet_lang", lang.key);
+                      setIsLanguageModalOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${
+                      isActive 
+                        ? "bg-brand-primary/10 border-brand-primary/50 text-brand-primary font-bold shadow-[0_0_15px_rgba(212,175,55,0.15)]" 
+                        : "bg-white/5 border-white/5 hover:bg-white/10 text-white/85 hover:text-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg">{lang.flag}</span>
+                      <div className="text-left">
+                        <p className="text-xs font-semibold">{lang.label}</p>
+                        <p className="text-[9px] text-white/40 font-mono">{lang.native}</p>
+                      </div>
+                    </div>
+                    {isActive && <Check className="w-4 h-4 text-brand-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setIsLanguageModalOpen(false)}
+              className="w-full py-2 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white border border-white/5 text-[11px] font-mono font-bold rounded-xl transition-all cursor-pointer uppercase"
+            >
+              {t.closeBtn}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Interactive Walkthrough Tour Guide overlay */}
       <InteractiveTour 
         isOpen={isTutorialOpen} 
         onClose={() => setIsTutorialOpen(false)} 
         onSelectTab={(tab) => setActiveTab(tab)} 
+        language={language}
       />
     </div>
   );

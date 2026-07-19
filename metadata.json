@@ -1,6 +1,6 @@
 {
   "name": "Remix: Communication Core",
-  "description": "A high-fidelity immersive communication applet with real-time video simulation, glassmorphic filters, and interactive AI contact sessions driven by Gemini.",
+  "description": "An advanced enterprise dashboard featuring a sovereign multi-model router, real-time Google Grounding fact-checking, document cognitive scanner, high-fidelity avatar creative studio, and a zero-latency communications matrix.",
   "requestFramePermissions": [
     "camera",
     "microphone"

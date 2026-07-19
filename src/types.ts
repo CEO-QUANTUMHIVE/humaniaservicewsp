@@ -84,4 +84,4 @@ export interface CalendarEvent {
   htmlLink?: string;
 }
 
-export type ActiveTab = "chats" | "services" | "create" | "billing" | "calls" | "vm" | "ai" | "calendar" | "gmail" | "classroom" | "translate";
+export type ActiveTab = "communication" | "brain" | "creative" | "performance";

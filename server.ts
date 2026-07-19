@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, GenerateVideosOperation } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -206,6 +206,327 @@ app.post("/api/translate", async (req, res) => {
     return res.status(500).json({ 
       error: error.message || "Error al comunicarse con el servicio de traducción inteligente." 
     });
+  }
+});
+
+// ==========================================
+// PREMIUM QUANTUM HIVE SUITE API ENDPOINTS
+// ==========================================
+
+// Google Search Grounding with gemini-3.5-flash
+app.post("/api/search-grounding", async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Falta el prompt de búsqueda." });
+    const client = getGeminiClient();
+    const response = await client.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+      }
+    });
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources = chunks.map((c: any) => ({
+      title: c.web?.title || "Fuente de búsqueda",
+      uri: c.web?.uri || "#"
+    })).filter((s: any) => s.uri !== "#");
+    return res.json({ text: response.text || "", sources });
+  } catch (error: any) {
+    console.error("Error in /api/search-grounding:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Google Maps Grounding with gemini-3.5-flash
+app.post("/api/maps-grounding", async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Falta la consulta de mapa." });
+    const client = getGeminiClient();
+    const response = await client.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        tools: [{ googleMaps: {} }],
+      }
+    });
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const places = chunks.map((c: any) => ({
+      title: c.web?.title || "Lugar encontrado",
+      uri: c.web?.uri || "#"
+    })).filter((s: any) => s.uri !== "#");
+    return res.json({ text: response.text || "", places });
+  } catch (error: any) {
+    console.error("Error in /api/maps-grounding:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Image / Document Analyzer using gemini-3.1-pro-preview
+app.post("/api/analyze-image", async (req, res) => {
+  try {
+    const { prompt, imageBase64, mimeType } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: "Falta la imagen a analizar." });
+    const client = getGeminiClient();
+    const imagePart = {
+      inlineData: {
+        data: imageBase64,
+        mimeType: mimeType || "image/png"
+      }
+    };
+    const response = await client.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents: [imagePart, { text: prompt || "Analiza esta imagen con detalle." }],
+    });
+    return res.json({ text: response.text || "" });
+  } catch (error: any) {
+    console.error("Error in /api/analyze-image:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Audio transcription using gemini-3.5-flash
+app.post("/api/transcribe-audio", async (req, res) => {
+  try {
+    const { audioBase64, mimeType } = req.body;
+    if (!audioBase64) return res.status(400).json({ error: "Falta el audio a transcribir." });
+    const client = getGeminiClient();
+    const response = await client.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [
+        {
+          inlineData: {
+            data: audioBase64,
+            mimeType: mimeType || "audio/wav"
+          }
+        },
+        { text: "Transcripción literal de este audio en español, sin comentarios." }
+      ]
+    });
+    return res.json({ text: response.text || "" });
+  } catch (error: any) {
+    console.error("Error in /api/transcribe-audio:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 4K High Quality Image Generation using gemini-3-pro-image
+app.post("/api/generate-image", async (req, res) => {
+  try {
+    const { prompt, aspectRatio, imageSize } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Falta el prompt de imagen." });
+    const client = getGeminiClient();
+    
+    const response = await client.models.generateContent({
+      model: "gemini-3-pro-image",
+      contents: {
+        parts: [{ text: prompt }]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio || "1:1",
+          imageSize: imageSize || "1K"
+        }
+      }
+    });
+
+    let base64Image = "";
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        base64Image = part.inlineData.data;
+        break;
+      }
+    }
+
+    if (!base64Image) {
+      throw new Error("No se pudo extraer la imagen del modelo de generación.");
+    }
+
+    return res.json({ imageUrl: `data:image/png;base64,${base64Image}` });
+  } catch (error: any) {
+    console.error("Error in /api/generate-image:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Lyria Music Generation Endpoint
+app.post("/api/generate-music", async (req, res) => {
+  try {
+    const { prompt, duration } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "Falta el prompt de música." });
+    }
+
+    const client = getGeminiClient();
+    const model = duration === "full" ? "lyria-3-pro-preview" : "lyria-3-clip-preview";
+
+    console.log(`Starting music generation stream using model: ${model}`);
+    const responseStream = await client.models.generateContentStream({
+      model: model,
+      contents: prompt,
+    });
+
+    let audioBase64 = "";
+    let lyrics = "";
+    let mimeType = "audio/wav";
+
+    for await (const chunk of responseStream) {
+      const parts = chunk.candidates?.[0]?.content?.parts;
+      if (!parts) continue;
+
+      for (const part of parts) {
+        if (part.inlineData?.data) {
+          if (!audioBase64 && part.inlineData.mimeType) {
+            mimeType = part.inlineData.mimeType;
+          }
+          audioBase64 += part.inlineData.data;
+        }
+        if (part.text && !lyrics) {
+          // The first text part contains the generated lyrics or description
+          lyrics = part.text;
+        }
+      }
+    }
+
+    if (!audioBase64) {
+      throw new Error("No se pudo extraer el audio generado del modelo de música Lyria.");
+    }
+
+    return res.json({
+      audioBase64,
+      lyrics,
+      mimeType,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/generate-music:", error);
+    return res.status(500).json({ error: error.message || "Fallo en la generación de música Lyria" });
+  }
+});
+
+// Fast Image Editor with gemini-3.1-flash-image
+app.post("/api/edit-image", async (req, res) => {
+  try {
+    const { prompt, imageBase64, mimeType } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: "Falta la imagen base para editar." });
+    if (!prompt) return res.status(400).json({ error: "Falta la instrucción de edición." });
+    
+    const client = getGeminiClient();
+    const response = await client.models.generateContent({
+      model: "gemini-3.1-flash-image",
+      contents: {
+        parts: [
+          { inlineData: { data: imageBase64, mimeType: mimeType || "image/png" } },
+          { text: prompt }
+        ]
+      }
+    });
+
+    let base64Image = "";
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        base64Image = part.inlineData.data;
+        break;
+      }
+    }
+
+    if (!base64Image) {
+      throw new Error("No se pudo extraer la imagen editada.");
+    }
+
+    return res.json({ imageUrl: `data:image/png;base64,${base64Image}` });
+  } catch (error: any) {
+    console.error("Error in /api/edit-image:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Veo 3 Video Generation using veo-3.1-lite-generate-preview
+app.post("/api/generate-video", async (req, res) => {
+  try {
+    const { prompt, imageBase64, mimeType, aspectRatio, resolution } = req.body;
+    const client = getGeminiClient();
+    
+    const payload: any = {
+      model: "veo-3.1-lite-generate-preview",
+      config: {
+        numberOfVideos: 1,
+        resolution: resolution || "720p",
+        aspectRatio: aspectRatio || "16:9"
+      }
+    };
+
+    if (prompt) {
+      payload.prompt = prompt;
+    }
+
+    if (imageBase64) {
+      payload.image = {
+        imageBytes: imageBase64,
+        mimeType: mimeType || "image/png"
+      };
+    }
+
+    const operation = await client.models.generateVideos(payload);
+    return res.json({ operationName: operation.name });
+  } catch (error: any) {
+    console.error("Error in /api/generate-video:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Veo Video Polling Status
+app.post("/api/video-status", async (req, res) => {
+  try {
+    const { operationName } = req.body;
+    if (!operationName) return res.status(400).json({ error: "Falta el nombre de la operación." });
+    const client = getGeminiClient();
+    const op = new GenerateVideosOperation();
+    op.name = operationName;
+    const updated = await client.operations.getVideosOperation({ operation: op });
+    return res.json({ done: updated.done, response: updated.response });
+  } catch (error: any) {
+    console.error("Error in /api/video-status:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Veo Video Download Proxy
+app.get("/api/video-download", async (req, res) => {
+  try {
+    const { operationName } = req.query;
+    if (!operationName) return res.status(400).send("Falta el nombre de la operación.");
+    const client = getGeminiClient();
+    const op = new GenerateVideosOperation();
+    op.name = operationName as string;
+    const updated = await client.operations.getVideosOperation({ operation: op });
+    const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+    if (!uri) return res.status(404).send("El video no está listo o no se encontró.");
+    const videoRes = await fetch(uri, {
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY! },
+    });
+    res.setHeader("Content-Type", "video/mp4");
+    const arrayBuffer = await videoRes.arrayBuffer();
+    return res.send(Buffer.from(arrayBuffer));
+  } catch (error: any) {
+    console.error("Error in /api/video-download:", error);
+    return res.status(500).send(error.message);
+  }
+});
+
+// Spark Dynamic Router Simulated Response
+app.post("/api/spark-route", async (req, res) => {
+  try {
+    const { prompt, selectedModel } = req.body;
+    const client = getGeminiClient();
+    const response = await client.models.generateContent({
+      model: selectedModel || "gemini-3.5-flash",
+      contents: prompt || "Hello",
+    });
+    return res.json({ text: response.text || "" });
+  } catch (error: any) {
+    console.error("Error in /api/spark-route:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 
